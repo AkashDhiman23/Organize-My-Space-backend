@@ -32,8 +32,8 @@ def signup(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_company(request):
-    admin = request.user
-    serializer = AdminCompanySerializer(admin, data=request.data)
+    admin = request.user  # the logged-in user
+    serializer = AdminCompanySerializer(admin, data=request.data, partial=True)  # allow partial update
     if serializer.is_valid():
         serializer.save()
         return Response({'detail': 'Company details saved'}, status=200)
@@ -64,7 +64,7 @@ def login(request):
         try:
             member = Member.objects.get(email=email)
             if member.check_password(password):
-                token = RefreshToken.for_user(member)  # you can build a custom user for members
+                token = RefreshToken.for_user(member)
                 token['role'] = 'member'
                 return Response({
                     'refresh': str(token),
