@@ -148,3 +148,10 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'akashdhiman181999@gmail.com'
 EMAIL_HOST_PASSWORD = 'Akash@909'
+
+
+SIMPLE_JWT = {
+    'USER_ID_FIELD': 'AdminID',
+}
+
+

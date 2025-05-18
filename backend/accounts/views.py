@@ -10,34 +10,25 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 import random
 import json
+from django.contrib.auth import logout
+from django.shortcuts import redirect
 
 from .models import Admin, Member, EmailOTP
 from .serializers import (
-    AdminRegistrationSerializer,
-    AdminCompanySerializer,
+    AdminFullRegistrationSerializer,
     MemberSerializer
 )
 
-### Step 1: Admin registers (name/email/password)
 @api_view(['POST'])
-def signup(request):
-    serializer = AdminRegistrationSerializer(data=request.data)
+def register_admin_full(request):
+    serializer = AdminFullRegistrationSerializer(data=request.data)
     if serializer.is_valid():
         admin = serializer.save()
-        return Response({'admin_id': admin.AdminID}, status=201)
-    return Response(serializer.errors, status=400)
-
-
-### Step 2: Admin adds company details
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def add_company(request):
-    admin = request.user  # the logged-in user
-    serializer = AdminCompanySerializer(admin, data=request.data, partial=True)  # allow partial update
-    if serializer.is_valid():
-        serializer.save()
-        return Response({'detail': 'Company details saved'}, status=200)
-    return Response(serializer.errors, status=400)
+        return Response({
+            'message': 'Admin registered with company details!',
+            'admin_id': admin.AdminID  
+        }, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 ### Login endpoint for Admin & Member
@@ -76,35 +67,46 @@ def login(request):
     return Response({'error': 'Invalid credentials'}, status=401)
 
 
+
+def logout_view(request):
+    logout(request)
+    return redirect('login')
+
 ### Admin creates new Member accounts (with role)
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_member(request):
-    admin = request.user
-    if not isinstance(admin, Admin):
-        return Response({'error': 'Only admins can create members'}, status=403)
-
     full_name = request.data.get('full_name')
-    email     = request.data.get('email')
-    role      = request.data.get('role', 'Designer')  # Default to 'Designer'
-    
-    # generate random password
-    raw_pw    = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    email = request.data.get('email')
+    role = request.data.get('role')
+    password = request.data.get('password')
 
-    member = Member(admin=admin, full_name=full_name, email=email, role=role)
-    member.set_password(raw_pw)
+    # Check required fields
+    if not all([full_name, email, role, password]):
+        return Response({'error': 'All fields are required.'}, status=400)
+
+    # Check for existing email
+    if Member.objects.filter(email=email).exists():
+        return Response({'error': 'Email already exists.'}, status=400)
+
+    # Get admin (assuming request.user is an Admin or linked to Admin)
+    try:
+        admin = Admin.objects.get(user=request.user)
+    except Admin.DoesNotExist:
+        return Response({'error': 'Admin not found.'}, status=403)
+
+    # Create Member
+    member = Member(
+        full_name=full_name,
+        email=email,
+        role=role,
+        admin=admin
+    )
+    member.set_password(password)
     member.save()
 
-    # Email credentials to the new member
-    send_mail(
-        'Your Member Account',
-        f'Your login: {email}\nPassword: {raw_pw}\nRole: {role}',
-        settings.DEFAULT_FROM_EMAIL,
-        [email],
-        fail_silently=True,
-    )
-
-    return Response(MemberSerializer(member).data, status=201)
+    return Response({'message': 'Member created successfully.'}, status=201)
 
 @csrf_exempt
 def send_otp(request):
@@ -144,3 +146,27 @@ def verify_otp(request):
             return JsonResponse({"error": "Invalid OTP"}, status=400)
     return JsonResponse({"error": "Only POST allowed"}, status=405)
 
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def company_details(request):
+    try:
+        admin = Admin.objects.get(user=request.user)
+    except Admin.DoesNotExist:
+        return Response({'error': 'Admin not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response({
+            'company_name': admin.company_name,
+            'address': admin.address,
+            'gst_details': admin.gst_details,
+        })
+
+    if request.method == 'PATCH':
+        data = request.data
+        admin.company_name = data.get('company_name', admin.company_name)
+        admin.address = data.get('address', admin.address)
+        admin.gst_details = data.get('gst_details', admin.gst_details)
+        admin.save()
+        return Response({'message': 'Company details updated.'})
