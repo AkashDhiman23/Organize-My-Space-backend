@@ -41,9 +41,14 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'accounts',
+    'rest_framework_simplejwt',
+   
+  
+    
 ]
-
+LOGIN_URL = '/api/login/'
 MIDDLEWARE = [
+      'corsheaders.middleware.CorsMiddleware', 
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -52,6 +57,17 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',      
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+
+    
+    
+ 
+    "corsheaders.middleware.CorsMiddleware",
+   
+    "django.middleware.csrf.CsrfViewMiddleware",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
 ]
 
 CORS_ALLOWED_ORIGINS = [
@@ -150,8 +166,58 @@ EMAIL_HOST_USER = 'akashdhiman181999@gmail.com'
 EMAIL_HOST_PASSWORD = 'Akash@909'
 
 
+AUTHENTICATION_BACKENDS = ['accounts.backends.EmailBackend']
+
 SIMPLE_JWT = {
     'USER_ID_FIELD': 'AdminID',
 }
 
 
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',  # default
+    
+]
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+        
+    ),
+}
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+    'DEFAULT_AUTHENTICATION_CLASSES': 
+    (
+    'rest_framework.authentication.TokenAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+     'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny', 
+    ]
+
+}
+
+CORS_ALLOW_ALL_ORIGINS = True 
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_COOKIE_SAMESITE = 'Lax'  # or 'None' if using cross-site cookies, but then you need secure=True
+CSRF_COOKIE_SECURE = False  # True if using HTTPS
+SESSION_COOKIE_SAMESITE = 'Lax'  # or 'None' with secure=True
+SESSION_COOKIE_SECURE = False  # True if HTTPS
+
+# In settings.py
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = False  # CSRF cookie must be accessible to JS for your code to read it
+CSRF_COOKIE_NAME = 'csrftoken'
