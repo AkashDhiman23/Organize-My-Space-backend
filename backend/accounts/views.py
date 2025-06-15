@@ -189,7 +189,6 @@ from django.views.decorators.http import require_POST
 
 from rest_framework.authentication import BasicAuthentication
 
-
 @api_view(['POST'])
 @admin_session_required
 def create_member(request):
@@ -222,6 +221,7 @@ def create_member(request):
 @admin_session_required
 def get_company_details(request):
     try:
+        
         admin = Admin.objects.get(AdminID=request.admin_id)
         
         # Build members list
@@ -284,6 +284,7 @@ def user_info(request):
 
 
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_user(request):
@@ -293,6 +294,24 @@ def get_user(request):
         'username': user.username,
         'email': user.email,
     })
+
+@api_view(["GET"])
+@admin_session_required
+def members_view(request):
+    admin_id = request.session.get("admin_id")
+    try:
+        admin = Admin.objects.get(AdminID=admin_id)
+    except Admin.DoesNotExist:
+        return Response({"error": "Admin not found."},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    members = (Member.objects
+               .filter(admin=admin)
+               .exclude(email__iexact=admin.email)
+               .order_by("-member_id"))         
+
+    return Response(MemberSerializer(members, many=True).data,
+                    status=status.HTTP_200_OK)
 
 # -------------------------
 # CSRF token endpoint
@@ -311,3 +330,137 @@ def get_csrf_token(request):
 @ensure_csrf_cookie
 def csrf_token_view(request):
     return JsonResponse({'message': 'CSRF token set'})
+
+
+@api_view(["GET"])
+@admin_session_required
+def customers_view_admin(request):
+    """
+    Return all customers that belong to the logged‑in Admin.
+    """
+    admin_id = request.session.get("admin_id")
+    try:
+        admin = Admin.objects.get(AdminID=admin_id)
+    except Admin.DoesNotExist:
+        return Response({"error": "Admin not found."},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    customers = (Customer.objects
+                 .filter(admin=admin)
+                 .select_related("manager")
+                 .order_by("-id"))
+
+    return Response(CustomerSerializer(customers, many=True).data,
+                    status=status.HTTP_200_OK)
+
+
+from rest_framework import generics, permissions
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import ProjectDetail
+from .serializers import ProjectDetailSerializer
+from accounts.models import Customer, Member
+
+class ProjectDetailCreateView(generics.CreateAPIView):
+    serializer_class   = ProjectDetailSerializer
+  
+    parser_classes     = (MultiPartParser, FormParser)
+
+    def perform_create(self, serializer):
+        customer_id   = self.kwargs["customer_id"]
+        customer      = generics.get_object_or_404(Customer, pk=customer_id)
+        designer_user = self.request.user
+
+        # ---------- DEBUG LOG ----------
+        # 👇 prints to console / gunicorn log
+        print(
+            f"[ProjectDetailCreate] customer #{customer.id}  "
+            f"name={customer.name!r}  email={customer.email}"
+        )
+        # --------------------------------
+
+        serializer.save(customer=customer, designer=designer_user)
+
+
+class ProjectDetailRetrieveUpdateView(APIView):
+   def get_object(self, customer_id):
+    customer = get_object_or_404(Customer, id=customer_id)
+    obj, created = ProjectDetail.objects.get_or_create(
+        customer=customer,
+        defaults={
+            "length_ft": 0.00,
+            "width_ft": 0.00,
+            "depth_in": 0.00,
+        }
+    )
+    return obj
+
+from django.shortcuts import get_object_or_404
+class ProjectDrawingUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request, customer_id):
+        # Validate customer exists
+        customer = get_object_or_404(Customer, pk=customer_id)
+
+        # Expect file in request.FILES['file']
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({"detail": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Retrieve or create ProjectDetail for customer
+        project_detail, created = ProjectDetail.objects.get_or_create(customer=customer)
+
+        # Assuming ProjectDetail model has a FileField named 'drawing_pdf' or similar
+        project_detail.drawing_pdf.save(file_obj.name, file_obj, save=True)
+
+        return Response({"detail": "Drawing uploaded successfully"}, status=status.HTTP_201_CREATED)
+
+
+from django.http import JsonResponse, Http404
+def customer_detail(request, customer_id):
+    try:
+        customer = Customer.objects.get(pk=customer_id)
+    except Customer.DoesNotExist:
+        raise Http404("Customer not found")
+
+    # Example: return some customer details as JSON
+    data = {
+        "id": customer.id,
+        "name": customer.name,
+        "email": customer.email,
+        # Add any other fields you want to expose
+    }
+    return JsonResponse(data)
+
+
+from .models import Customer, ProjectDetail, ProjectDrawing
+from .serializers import ProjectDrawingSerializer
+class ProjectDrawingUploadView(generics.CreateAPIView):
+    serializer_class = ProjectDrawingSerializer
+   
+
+    def post(self, request, customer_id, *args, **kwargs):
+        # Verify customer exists
+        customer = get_object_or_404(Customer, id=customer_id)
+        
+        # Retrieve the project linked to the customer
+        # Assuming one project per customer or you want the first one
+        try:
+            project = ProjectDetail.objects.get(customer=customer)
+        except ProjectDetail.DoesNotExist:
+            return Response({"detail": "Project not found for this customer."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Prepare data for serializer
+        data = request.data.copy()
+        data['project'] = project.id  # link the drawing to the project
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

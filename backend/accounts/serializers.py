@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Admin, Member,Customer
+from .models import Admin, Member,Customer , ProjectDetail
+from .models import ProjectDrawing
 
 
 
@@ -50,3 +51,47 @@ class CustomerSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+
+
+class ProjectDetailSerializer(serializers.ModelSerializer):
+    square_feet = serializers.ReadOnlyField()
+
+    class Meta:
+        model  = ProjectDetail
+        fields = (
+            "id",
+            "customer",     
+            "designer",      # auto‑set to logged‑in designer
+            "length_ft",
+            "width_ft",
+            "depth_in",
+            "square_feet",
+            "drawing1",
+            "drawing2",
+            "drawing3",
+            "drawing4",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "square_feet", "created_at", "updated_at", "designer")
+
+    # -------- validation to enforce 2‑4 drawings --------
+    def validate(self, attrs):
+        files = [
+            attrs.get("drawing1") or getattr(self.instance, "drawing1", None),
+            attrs.get("drawing2") or getattr(self.instance, "drawing2", None),
+            attrs.get("drawing3") or getattr(self.instance, "drawing3", None),
+            attrs.get("drawing4") or getattr(self.instance, "drawing4", None),
+        ]
+        count = len([f for f in files if f])
+        if count < 2:
+            raise serializers.ValidationError("At least 2 drawings are required.")
+        if count > 4:
+            raise serializers.ValidationError("No more than 4 drawings allowed.")
+        return attrs
+
+class ProjectDrawingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProjectDrawing
+        fields = ['id', 'project', 'drawing_file', 'uploaded_at']
+        read_only_fields = ['id', 'uploaded_at']

@@ -102,3 +102,49 @@ class Customer(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.status} ({self.progress_percentage}%)"
+    
+
+def drawing_upload_path(instance, filename):
+    return f"drawings/customer_{instance.customer.id}/{filename}"
+
+
+class ProjectDetail(models.Model):
+    customer      = models.OneToOneField(Customer, on_delete=models.CASCADE, related_name="project_detail")
+    designer      = models.ForeignKey(Member, on_delete=models.SET_NULL, null=True, blank=True,
+                                      limit_choices_to={'role': 'Designer'})
+
+    length_ft     = models.DecimalField(max_digits=7, decimal_places=2)
+    width_ft      = models.DecimalField(max_digits=7, decimal_places=2)
+    depth_in      = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+
+    drawing1      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
+    drawing2      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
+    drawing3      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
+    drawing4      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
+
+    created_at    = models.DateTimeField(default=timezone.now)
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    @property
+    def square_feet(self):
+        return float(self.length_ft) * float(self.width_ft)
+
+    def drawing_count(self):
+        return len([img for img in [self.drawing1, self.drawing2, self.drawing3, self.drawing4] if img])
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.drawing_count() < 2:
+            raise ValidationError("At least 2 drawings are required.")
+        if self.drawing_count() > 4:
+            raise ValidationError("No more than 4 drawings allowed.")
+
+    def __str__(self):
+        return f"{self.customer.name} — {self.square_feet} sq ft"
+    
+
+
+class ProjectDrawing(models.Model):
+    project = models.ForeignKey(ProjectDetail, on_delete=models.CASCADE, related_name='drawings')
+    drawing_file = models.FileField(upload_to='project_drawings/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
