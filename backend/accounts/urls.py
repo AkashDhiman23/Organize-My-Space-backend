@@ -12,28 +12,16 @@ from .views import delete_customer
 from .views import customers_view
 from .views import customers_view_admin
 from .views import  members_view 
-from .views import (
-    ProjectDetailCreateView,
-    ProjectDetailRetrieveUpdateView,
-)
-from .views import ProjectDrawingUploadView
+
 from . import views
+from .views import ProjectDetailView, DrawingUploadView
 
 
 
 urlpatterns = [
     
-      # create (only if not yet created)
-    path(
-    "customers/<int:customer_id>/project/create/",
-    ProjectDetailCreateView.as_view(),
-    name="projectdetail-create",
-),
-path(
-    "customers/<int:customer_id>/project/",
-    ProjectDetailRetrieveUpdateView.as_view(),
-    name="projectdetail-rud",
-),
+      path("customers/<int:customer_id>/project/", ProjectDetailView.as_view(), name="project-detail"),
+    path("customers/<int:customer_id>/project/drawing/", DrawingUploadView.as_view(), name="drawing-upload"),
 
     path('signup/', views.register_admin_full, name='register_admin_full'),
     path('login/', views.login, name='login'),
@@ -67,11 +55,7 @@ path(
     
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),   # Login: get tokens
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),  # Refresh token
+    path('customers/<int:customer_id>/', views.customer_detail, name='customer-detail'),
 
-
-     path(
-        "customers/<int:customer_id>/project/drawing/",
-        ProjectDrawingUploadView.as_view(),
-        name="projectdrawing-upload",
-    ),
+    
 ]

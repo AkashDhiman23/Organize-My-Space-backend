@@ -2,7 +2,9 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.utils import timezone
 from django.contrib.auth.hashers import make_password
+from django.core.exceptions import ValidationError
 import datetime
+from pathlib import Path
 
 
 # Custom manager for Admin model
@@ -109,42 +111,72 @@ def drawing_upload_path(instance, filename):
 
 
 class ProjectDetail(models.Model):
-    customer      = models.OneToOneField(Customer, on_delete=models.CASCADE, related_name="project_detail")
-    designer      = models.ForeignKey(Member, on_delete=models.SET_NULL, null=True, blank=True,
-                                      limit_choices_to={'role': 'Designer'})
+   
+    customer        = models.OneToOneField(
+        Customer, on_delete=models.CASCADE, related_name="project"
+    )
 
-    length_ft     = models.DecimalField(max_digits=7, decimal_places=2)
-    width_ft      = models.DecimalField(max_digits=7, decimal_places=2)
-    depth_in      = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    length_ft       = models.DecimalField(
+        max_digits=7, decimal_places=2, null=True, blank=True
+    )
+    width_ft        = models.DecimalField(
+        max_digits=7, decimal_places=2, null=True, blank=True
+    )
+    depth_in        = models.DecimalField(
+        max_digits=7, decimal_places=2, null=True, blank=True
+    )
 
-    drawing1      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
-    drawing2      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
-    drawing3      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
-    drawing4      = models.ImageField(upload_to=drawing_upload_path, null=True, blank=True)
+    material_name   = models.CharField(max_length=120, blank=True)
+    body_color      = models.CharField(max_length=40,  blank=True)
+    door_color      = models.CharField(max_length=40,  blank=True)
+    body_material   = models.CharField(max_length=120, blank=True)
+    door_material   = models.CharField(max_length=120, blank=True)
 
-    created_at    = models.DateTimeField(default=timezone.now)
-    updated_at    = models.DateTimeField(auto_now=True)
+    created_at      = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
 
+    # -------------- helpers ----------------
     @property
     def square_feet(self):
-        return float(self.length_ft) * float(self.width_ft)
+        if self.length_ft and self.width_ft:
+            return float(self.length_ft) * float(self.width_ft)
+        return None
 
-    def drawing_count(self):
-        return len([img for img in [self.drawing1, self.drawing2, self.drawing3, self.drawing4] if img])
-
-    def clean(self):
-        from django.core.exceptions import ValidationError
-        if self.drawing_count() < 2:
-            raise ValidationError("At least 2 drawings are required.")
-        if self.drawing_count() > 4:
-            raise ValidationError("No more than 4 drawings allowed.")
+    @property
+    def drawings_count(self):
+        return self.drawings.count()
 
     def __str__(self):
-        return f"{self.customer.name} — {self.square_feet} sq ft"
+        return f"Project for {self.customer}"
+
+
+def drawings_upload_path(instance: "Drawing", filename: str) -> str:
+    # e.g. projects/42/drawing2.pdf
+    return f"projects/{instance.project.customer_id}/drawing{instance.drawing_num}{Path(filename).suffix}"
+
+
+class Drawing(models.Model):
+    """
+    One PDF (or PNG, etc.) per “drawing”.
+    Limited to four per project ― enforced in clean().
+    """
+    project         = models.ForeignKey(
+        ProjectDetail, on_delete=models.CASCADE, related_name="drawings"
+    )
+    drawing_num     = models.PositiveSmallIntegerField()
+    file            = models.FileField(upload_to=drawings_upload_path)
+    uploaded_at     = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("project", "drawing_num")
+        ordering        = ("drawing_num",)
+
+    # enforce 1‑4 at model level too
+    def clean(self):
+        if not (1 <= self.drawing_num <= 4):
+            raise ValidationError("drawing_num must be between 1 and 4 (inclusive).")
+
+    def __str__(self):
+        return f"Drawing {self.drawing_num} – {self.project.customer}"
     
-
-
-class ProjectDrawing(models.Model):
-    project = models.ForeignKey(ProjectDetail, on_delete=models.CASCADE, related_name='drawings')
-    drawing_file = models.FileField(upload_to='project_drawings/')
-    uploaded_at = models.DateTimeField(auto_now_add=True)
+    

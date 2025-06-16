@@ -26,6 +26,7 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate, login
+from .models import Customer
 
 from django.contrib.auth import login as django_login
 from django.contrib.auth.hashers import check_password
@@ -354,71 +355,7 @@ def customers_view_admin(request):
                     status=status.HTTP_200_OK)
 
 
-from rest_framework import generics, permissions
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
 
-from .models import ProjectDetail
-from .serializers import ProjectDetailSerializer
-from accounts.models import Customer, Member
-
-class ProjectDetailCreateView(generics.CreateAPIView):
-    serializer_class   = ProjectDetailSerializer
-  
-    parser_classes     = (MultiPartParser, FormParser)
-
-    def perform_create(self, serializer):
-        customer_id   = self.kwargs["customer_id"]
-        customer      = generics.get_object_or_404(Customer, pk=customer_id)
-        designer_user = self.request.user
-
-        # ---------- DEBUG LOG ----------
-        # 👇 prints to console / gunicorn log
-        print(
-            f"[ProjectDetailCreate] customer #{customer.id}  "
-            f"name={customer.name!r}  email={customer.email}"
-        )
-        # --------------------------------
-
-        serializer.save(customer=customer, designer=designer_user)
-
-
-class ProjectDetailRetrieveUpdateView(APIView):
-   def get_object(self, customer_id):
-    customer = get_object_or_404(Customer, id=customer_id)
-    obj, created = ProjectDetail.objects.get_or_create(
-        customer=customer,
-        defaults={
-            "length_ft": 0.00,
-            "width_ft": 0.00,
-            "depth_in": 0.00,
-        }
-    )
-    return obj
-
-from django.shortcuts import get_object_or_404
-class ProjectDrawingUploadView(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)
-
-    def post(self, request, customer_id):
-        # Validate customer exists
-        customer = get_object_or_404(Customer, pk=customer_id)
-
-        # Expect file in request.FILES['file']
-        file_obj = request.FILES.get('file')
-        if not file_obj:
-            return Response({"detail": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Retrieve or create ProjectDetail for customer
-        project_detail, created = ProjectDetail.objects.get_or_create(customer=customer)
-
-        # Assuming ProjectDetail model has a FileField named 'drawing_pdf' or similar
-        project_detail.drawing_pdf.save(file_obj.name, file_obj, save=True)
-
-        return Response({"detail": "Drawing uploaded successfully"}, status=status.HTTP_201_CREATED)
 
 
 from django.http import JsonResponse, Http404
@@ -433,34 +370,71 @@ def customer_detail(request, customer_id):
         "id": customer.id,
         "name": customer.name,
         "email": customer.email,
-        # Add any other fields you want to expose
+        "contact_number" :customer.contact_number,
+       
     }
     return JsonResponse(data)
 
+from rest_framework import status, permissions
+from django.shortcuts import get_object_or_404
+from .models import Customer, ProjectDetail, Drawing
+from .serializers import ProjectDetailSerializer, DrawingSerializer
+from rest_framework.parsers import MultiPartParser, FormParser , JSONParser
 
-from .models import Customer, ProjectDetail, ProjectDrawing
-from .serializers import ProjectDrawingSerializer
-class ProjectDrawingUploadView(generics.CreateAPIView):
-    serializer_class = ProjectDrawingSerializer
-   
+class ProjectDetailView(APIView):
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
-    def post(self, request, customer_id, *args, **kwargs):
-        # Verify customer exists
+    def get(self, request, customer_id):
         customer = get_object_or_404(Customer, id=customer_id)
-        
-        # Retrieve the project linked to the customer
-        # Assuming one project per customer or you want the first one
+        project, _ = ProjectDetail.objects.get_or_create(customer=customer)
+        serializer = ProjectDetailSerializer(project)
+        return Response(serializer.data)
+
+    def post(self, request, customer_id):
+        # You can treat POST as create or partial update here
+        return self.update_project(request, customer_id)
+
+    def patch(self, request, customer_id):
+        # Recommended for partial update
+        return self.update_project(request, customer_id)
+
+    def update_project(self, request, customer_id):
+        customer = get_object_or_404(Customer, id=customer_id)
+        project, _ = ProjectDetail.objects.get_or_create(customer=customer)
+
+        serializer = ProjectDetailSerializer(project, data=request.data, partial=True)
+        if serializer.is_valid():
+            # Check drawings count before saving
+            if project.drawings.count() < 2:
+                return Response(
+                    {"detail": "Please upload at least 2 drawings before saving project details."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class DrawingUploadView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, customer_id):
+        project = get_object_or_404(ProjectDetail, customer_id=customer_id)
+
+        # ➊ get number from form‑data
         try:
-            project = ProjectDetail.objects.get(customer=customer)
-        except ProjectDetail.DoesNotExist:
-            return Response({"detail": "Project not found for this customer."}, status=status.HTTP_404_NOT_FOUND)
+            num = int(request.data.get("drawing_num", 0))
+        except (TypeError, ValueError):
+            return Response({"detail": "drawing_num missing/invalid"}, status=400)
 
-        # Prepare data for serializer
-        data = request.data.copy()
-        data['project'] = project.id  # link the drawing to the project
+        if not (1 <= num <= 4):
+            return Response({"detail": "drawing_num must be 1‑4"}, status=400)
 
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        if project.drawings.filter(drawing_num=num).exists():
+            return Response({"detail": "That drawing number already exists"}, status=400)
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        f = request.data.get("file")
+        if not f:
+            return Response({"detail": "file missing"}, status=400)
+
+        Drawing.objects.create(project=project, drawing_num=num, file=f)
+        return Response({"detail": "uploaded", "drawing_num": num}, status=201)
