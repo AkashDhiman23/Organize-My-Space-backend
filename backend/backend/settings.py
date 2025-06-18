@@ -48,6 +48,7 @@ INSTALLED_APPS = [
 ]
 LOGIN_URL = '/api/login/'
 MIDDLEWARE = [
+     
       'corsheaders.middleware.CorsMiddleware', 
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -116,7 +117,8 @@ DATABASES = {
     }
 }
 
-
+MEDIA_URL  = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 
@@ -163,7 +165,7 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'akashdhiman181999@gmail.com'
-EMAIL_HOST_PASSWORD = 'Akash@909'
+EMAIL_HOST_PASSWORD = 'dgyy yoem kfrc iuvl'
 
 
 AUTHENTICATION_BACKENDS = ['accounts.backends.EmailBackend']

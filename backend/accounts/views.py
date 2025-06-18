@@ -54,26 +54,31 @@ def admin_session_required(view_func):
         return view_func(request, *args, **kwargs)
     return wrapped
 
-# -------------------------
-# Admin Registration - Public
-# -------------------------
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_admin_full(request):
+    email = request.data.get('email', '').strip().lower()
+    otp = request.data.get('otp', '').strip()
+
+    cached_otp = cache.get(cache_key(email))
+
+    if not cached_otp or cached_otp != otp:
+        return Response(
+            {"non_field_errors": ["OTP expired or not found. Please request a new one."]},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     serializer = AdminFullRegistrationSerializer(data=request.data)
     if serializer.is_valid():
         admin = serializer.save()
-
-        # Log user in (create session)
         django_login(request, admin)
-
-        # Get CSRF token to send in response
         csrf_token = get_token(request)
-
+        cache.delete(cache_key(email))
         return Response({
-            'message': 'Admin registered and logged in!',
-            'admin_id': admin.AdminID,
-            'csrfToken': csrf_token,
+            "message": "Admin registered and logged in!",
+            "admin_id": admin.AdminID,
+            "csrfToken": csrf_token,
         }, status=status.HTTP_201_CREATED)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -166,6 +171,10 @@ def all_customers_view(request):
     serializer = CustomerSerializer(customers, many=True)
     print(f"All Customers: {serializer.data}")  
     return Response(serializer.data)
+
+
+
+
 # -------------------------
 # Logout View
 # -------------------------
@@ -365,7 +374,7 @@ def customer_detail(request, customer_id):
     except Customer.DoesNotExist:
         raise Http404("Customer not found")
 
-    # Example: return some customer details as JSON
+   
     data = {
         "id": customer.id,
         "name": customer.name,
@@ -438,3 +447,95 @@ class DrawingUploadView(APIView):
 
         Drawing.objects.create(project=project, drawing_num=num, file=f)
         return Response({"detail": "uploaded", "drawing_num": num}, status=201)
+    
+
+from rest_framework import status as drf_status
+
+class SendToProductionView(APIView):
+    def post(self, request, customer_id):
+        try:
+            # Get the latest project for the customer
+            project = ProjectDetail.objects.filter(customer__id=customer_id).latest('created_at')
+        except ProjectDetail.DoesNotExist:
+            return Response(
+                {"error": "Project not found for this customer"},
+                status=drf_status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = ProjectDetailSerializer(project, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        serializer.save()
+
+        print("Project updated successfully. ID:", serializer.data.get("id"))
+
+        return Response(
+            {
+                "success": True,
+                "id": serializer.data.get("id"),
+                "status": serializer.data.get("status")
+            },
+            status=drf_status.HTTP_200_OK
+        )
+
+from rest_framework.generics import ListAPIView   
+from rest_framework.exceptions import NotFound
+
+
+class DrawingListView(ListAPIView):
+    serializer_class = DrawingSerializer
+
+    def get_queryset(self):
+        cid = self.kwargs["customer_id"]
+        project = get_object_or_404(ProjectDetail, customer_id=cid)
+        return project.drawings.order_by("drawing_num")
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx["request"] = self.request                # so build_absolute_uri works
+        return ctx
+    
+
+
+import random, string, datetime
+from django.conf import settings
+from django.core.cache import cache
+from django.core.mail import send_mail
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_exempt   # because you already pass CSRF in JS
+from django.utils.timezone import now
+
+
+OTP_TTL = 300  # 5 minutes expiry
+
+def generate_otp(length=6):
+    return ''.join(str(random.randint(0,9)) for _ in range(length))
+
+def cache_key(email):
+    return f"signup_otp_{email.lower().strip()}"
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def send_signup_otp(request):
+    try:
+        email = json.loads(request.body).get("email", "").strip().lower()
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    if not email:
+        return HttpResponseBadRequest("Email required")
+
+    otp = generate_otp()
+    cache.set(cache_key(email), otp, timeout=OTP_TTL)
+
+    send_mail(
+        subject="Your One-Time Password",
+        message=f"Your OTP is {otp}. It will expire in 5 minutes.",
+        from_email="your-email@example.com",
+        recipient_list=[email],
+    )
+    return JsonResponse({"detail": "OTP sent"})
+

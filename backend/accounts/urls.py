@@ -16,9 +16,23 @@ from .views import  members_view
 from . import views
 from .views import ProjectDetailView, DrawingUploadView
 
+from .views import SendToProductionView
+
+from .views import (
+   
+    DrawingListView,    
+)
 
 
 urlpatterns = [
+
+      path("projects/customer/<int:customer_id>/send-to-production/",
+     SendToProductionView.as_view(),
+     name="send_to_production_by_customer"),
+
+
+       path("send-otp/",    views.send_signup_otp,    name="send-signup-otp"),
+
     
       path("customers/<int:customer_id>/project/", ProjectDetailView.as_view(), name="project-detail"),
     path("customers/<int:customer_id>/project/drawing/", DrawingUploadView.as_view(), name="drawing-upload"),
@@ -32,6 +46,12 @@ urlpatterns = [
     path('csrf-token/', csrf_token_view, name='csrf-token'),
 
 
+
+     path(
+        "customers/<int:customer_id>/project/drawings/",  # <- plural!
+        DrawingListView.as_view(),
+        name="drawing-list",
+    ),
 
      path('customers/<int:customer_id>/', views.customer_detail, name='customer-detail'),
     

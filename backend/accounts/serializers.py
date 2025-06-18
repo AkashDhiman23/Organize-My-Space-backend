@@ -1,21 +1,21 @@
+from functools import cache
 from rest_framework import serializers
 from .models import Admin, Member,Customer , ProjectDetail
 from .models import Drawing
+from django.core.cache import cache
 
 
-
-class AdminCompanyDetailsSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Admin
-        fields = ['AdminID', 'email', 'full_name', 'company_name', 'address', 'gst_details']
 
 class AdminFullRegistrationSerializer(serializers.ModelSerializer):
+    otp = serializers.CharField(write_only=True)
+
     class Meta:
         model = Admin
-        fields = ['AdminID', 'email', 'full_name', 'password', 'company_name', 'address', 'gst_details']
+        fields = ['AdminID', 'email', 'full_name', 'password', 'company_name', 'address', 'gst_details', 'otp']
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
+        validated_data.pop('otp', None)  # remove otp from user creation
         password = validated_data.pop('password')
         user = Admin.objects.create_user(password=password, **validated_data)
         return user
@@ -39,6 +39,8 @@ class MemberSerializer(serializers.ModelSerializer):
     
 
 class CustomerSerializer(serializers.ModelSerializer):
+
+    
     # Show manager as ID
     class Meta:
         model = Customer
@@ -56,7 +58,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     drawings_count = serializers.IntegerField(read_only=True)
 
     class Meta:
-        model  = ProjectDetail
+        model = ProjectDetail
         fields = [
             "id",
             "customer",
@@ -68,13 +70,28 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             "door_color",
             "body_material",
             "door_material",
+            "status",          # added status here
             "drawings_count",
         ]
         read_only_fields = ("customer",)
 
 
 class DrawingSerializer(serializers.ModelSerializer):
+    file = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model  = Drawing
-        fields = ("id", "project", "drawing_num", "file", "uploaded_at")
-        read_only_fields = ("project", "drawing_num", "uploaded_at")
+        fields = ("id", "drawing_num", "file", "image_url", "uploaded_at")
+
+    # helpers
+    def _abs(self, url):
+        request = self.context.get("request")
+        return request.build_absolute_uri(url) if request else url
+
+    def get_file(self, obj):
+        return self._abs(obj.file.url) if obj.file else None
+
+    def get_image_url(self, obj):
+        # optional preview image if you store one
+        return self._abs(obj.image_url.url) if getattr(obj, "image_url", None) else None

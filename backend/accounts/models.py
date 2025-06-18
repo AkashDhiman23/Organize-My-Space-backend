@@ -32,6 +32,10 @@ class Admin(AbstractBaseUser):
     address      = models.TextField(blank=True)
     gst_details  = models.CharField(max_length=100, blank=True)
 
+
+      # Company logo field - optional image
+    company_logo = models.ImageField(upload_to='company_logos/', blank=True, null=True)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['full_name']
 
@@ -109,12 +113,19 @@ class Customer(models.Model):
 def drawing_upload_path(instance, filename):
     return f"drawings/customer_{instance.customer.id}/{filename}"
 
-
 class ProjectDetail(models.Model):
+    id = models.BigAutoField(primary_key=True)
+
    
-    customer        = models.OneToOneField(
-        Customer, on_delete=models.CASCADE, related_name="project"
-    )
+   
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Assigned', 'Assigned'),
+        ('Completed', 'Completed'),
+    ]
+
+    customer = models.ForeignKey(Admin, null=True, blank=True, on_delete=models.CASCADE)
+
 
     length_ft       = models.DecimalField(
         max_digits=7, decimal_places=2, null=True, blank=True
@@ -132,10 +143,15 @@ class ProjectDetail(models.Model):
     body_material   = models.CharField(max_length=120, blank=True)
     door_material   = models.CharField(max_length=120, blank=True)
 
+    status          = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='Pending'
+    )
+
     created_at      = models.DateTimeField(auto_now_add=True)
     updated_at      = models.DateTimeField(auto_now=True)
 
-    # -------------- helpers ----------------
     @property
     def square_feet(self):
         if self.length_ft and self.width_ft:
@@ -149,11 +165,8 @@ class ProjectDetail(models.Model):
     def __str__(self):
         return f"Project for {self.customer}"
 
-
 def drawings_upload_path(instance: "Drawing", filename: str) -> str:
-    # e.g. projects/42/drawing2.pdf
     return f"projects/{instance.project.customer_id}/drawing{instance.drawing_num}{Path(filename).suffix}"
-
 
 class Drawing(models.Model):
     """
