@@ -84,7 +84,6 @@ def register_admin_full(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -164,25 +163,69 @@ def customers_view(request):
         
 
 
-
-@api_view(['GET'])
+@api_view(["GET"])
 def all_customers_view(request):
-    customers = Customer.objects.all()
-    serializer = CustomerSerializer(customers, many=True)
-    print(f"All Customers: {serializer.data}")  
-    return Response(serializer.data)
+    """
+    GET /accounts/all-customers/
+
+    • If a designer is logged in (session["designer_id"]) → customers whose
+      projects are assigned to that designer.
+    • If a production user is logged in (session["production_id"]) → customers
+      whose projects are assigned to that production user.
+    """
+
+    designer_id   = request.session.get("designer_id")
+    production_id = request.session.get("production_id")
+
+    # 1️⃣ Determine caller role & member
+    if designer_id:
+        member_role = Member.DESIGNER
+        member_id   = designer_id
+        filter_key  = "projectdetail__assigned_designer"
+    elif production_id:
+        member_role = Member.PRODUCTION
+        member_id   = production_id
+        filter_key  = "projectdetail__assigned_production"
+    else:
+        return Response(
+            {"detail": "designer_id or production_id not found in session"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    member = get_object_or_404(Member, member_id=member_id, role=member_role)
+
+    # 2️⃣ Get customers linked to that member
+    customers_qs = (
+        Customer.objects
+        .filter(**{filter_key: member})
+        .distinct()
+        # optional performance tweaks
+        .select_related("manager")
+        .prefetch_related("projectdetail_set")
+    )
+
+    # 3️⃣ Serialize, letting serializer know the caller
+    serializer = CustomerSerializer(
+        customers_qs,
+        many=True,
+        context={
+            "member": member,
+            "role":   member_role,
+        },
+    )
+
+    # 4️⃣ Debug print only in DEBUG mode
+    if settings.DEBUG:
+        import json, textwrap
+        print(
+            f"[Dashboard] {member_role} {member_id} → {customers_qs.count()} customers\n"
+            + textwrap.indent(json.dumps(serializer.data, indent=2, default=str), "  ")
+        )
+
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 
-
-# -------------------------
-# Logout View
-# -------------------------
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def logout_view(request):
-    logout(request)
-    return Response({'message': 'Logged out successfully.'})
 
 # -------------------------
 # Admin creates Member accounts - Protected
@@ -461,11 +504,15 @@ class SendToProductionView(APIView):
                 {"error": "Project not found for this customer"},
                 status=drf_status.HTTP_404_NOT_FOUND
             )
-
-        serializer = ProjectDetailSerializer(project, data=request.data, partial=True)
+        
+        # Force status to "In Production" regardless of request data
+        data = request.data.copy()  # copy to modify
+        data['status'] = "In Production"
+        
+        serializer = ProjectDetailSerializer(project, data=data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=drf_status.HTTP_400_BAD_REQUEST)
-
+        
         serializer.save()
 
         print("Project updated successfully. ID:", serializer.data.get("id"))
@@ -539,3 +586,458 @@ def send_signup_otp(request):
     )
     return JsonResponse({"detail": "OTP sent"})
 
+
+
+
+
+# MANAGER
+# 
+class AddCustomerWithProject(APIView):
+    def post(self, request, *args, **kwargs):
+        # ───────── 1. build & validate customer ─────────
+        customer_payload = {
+            "name":  request.data.get("name"),
+            "email": request.data.get("email"),
+            "contact_number": request.data.get("contact_number"),
+            "address": request.data.get("address"),
+            "progress_percentage": request.data.get("progress_percentage", 0),
+        }
+
+        # optional manager from session
+        manager_id = request.session.get("manager_id")
+        if manager_id:
+            customer_payload["manager"] = get_object_or_404(Member, pk=manager_id).pk
+
+        customer_ser = CustomerSerializer(data=customer_payload)
+        if not customer_ser.is_valid():
+            return Response(customer_ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        customer = customer_ser.save()        # <- row in Customer table
+
+        # ───────── 2. build & validate project ─────────
+        project_payload = {
+            # do NOT include "customer" here because field is read‑only
+            "product_name":  request.data.get("product_name", ""),
+            "length_ft":     request.data.get("length_ft"),
+            "width_ft":      request.data.get("width_ft"),
+            "depth_in":      request.data.get("depth_in"),
+            "body_color":    request.data.get("body_color", ""),
+            "door_color":    request.data.get("door_color", ""),
+            "body_material": request.data.get("body_material", ""),
+            "door_material": request.data.get("door_material", ""),
+            "deadline_date": request.data.get("deadline_date"),
+            "status":        request.data.get("status", "Pending"),
+        }
+
+        project_ser = ProjectDetailSerializer(data=project_payload)
+        if not project_ser.is_valid():
+            customer.delete()                 # rollback
+            return Response(project_ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # 🔑 inject FK when saving
+        project_ser.save(customer=customer)   # now customer_id is set
+
+        return Response(
+            {
+                "message":  "Customer and Project created successfully.",
+                "customer": customer_ser.data,
+                "project":  project_ser.data,
+            },
+            status=status.HTTP_201_CREATED
+        )
+    
+
+class ProjectListAPIView(APIView):
+    """
+    GET /accounts/projects-list/
+
+    • Returns every ProjectDetail whose customer is managed by the
+      logged‑in manager’s company (admin_id match).
+    • Bundles the company’s Designers *and* Productions so the
+      frontend can populate its two <select> menus.
+    """
+
+    def get(self, request):
+        # 1️⃣ Identify calling manager
+        manager_id = request.session.get("manager_id")
+        if not manager_id:
+            return Response({"error": "manager_id not found in session"}, status=400)
+
+        manager = get_object_or_404(
+            Member, member_id=manager_id, role=Member.MANAGER
+        )
+        company_admin_id = manager.admin_id
+
+        # 2️⃣ Projects belonging to this company
+        projects_qs = (
+            ProjectDetail.objects
+            .select_related(
+                "customer",
+                "customer__manager",
+                "assigned_designer",
+                "assigned_production",     # <‑‑ NEW
+            )
+            .filter(customer__manager__admin_id=company_admin_id)
+        )
+
+        projects_data = [
+            {
+                "id":                 p.id,
+                "product_name":       p.product_name,
+                "status":             p.status,
+                "assigned_designer": (
+                    p.assigned_designer.member_id if p.assigned_designer else None
+                ),
+                "assigned_production": (
+                    p.assigned_production.member_id if p.assigned_production else None
+                ),                                     # <‑‑ NEW
+                "customer_name":      p.customer.name if p.customer else "N/A",
+                "customer":           p.customer.id   if p.customer else None,
+            }
+            for p in projects_qs
+        ]
+
+        # 3️⃣ Designers and Productions from the same company
+        company_members = Member.objects.filter(admin_id=company_admin_id)
+
+        designers_data = [
+            {"id": m.member_id, "full_name": m.full_name}
+            for m in company_members if m.role == Member.DESIGNER
+        ]
+
+        productions_data = [
+            {"id": m.member_id, "full_name": m.full_name}
+            for m in company_members if m.role == Member.PRODUCTION
+        ]
+
+        # 4️⃣ Ship to client
+        return Response(
+            {
+                "projects":    projects_data,
+                "designers":   designers_data,
+                "productions": productions_data,   # <‑‑ NEW
+            },
+            status=status.HTTP_200_OK,
+        )
+
+class AssignDesignerView(APIView):
+    def patch(self, request, project_id):
+        designer_id = request.data.get("assigned_designer")
+        if not designer_id:
+            return Response({"error": "Designer ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        project = get_object_or_404(ProjectDetail, pk=project_id)
+        designer = get_object_or_404(Member, pk=designer_id, role__icontains="designer")
+
+        project.assigned_designer = designer
+        project.save()
+
+        return Response({"message": "Designer assigned successfully."}, status=status.HTTP_200_OK)
+    
+
+
+
+class AssignProductionView(APIView):
+    """
+    PATCH /accounts/projects-assign-production/<project_id>/
+
+    JSON body:
+        { "assigned_production": <member_id | null> }
+
+    • If member_id is provided ➜ link that Production member to the project
+    • If `null` or empty string ➜ clear the assignment
+    """
+
+    def patch(self, request, project_id):
+        production_id = request.data.get("assigned_production")
+
+        project = get_object_or_404(ProjectDetail, pk=project_id)
+
+        if production_id in ("", None):
+            # Un‑assign production
+            project.assigned_production = None
+            project.save()
+            return Response(
+                {"message": "Production assignment cleared."},
+                status=status.HTTP_200_OK,
+            )
+
+        # Validate that the specified member exists *and* is a Production
+        production_member = get_object_or_404(
+            Member, pk=production_id, role__icontains="production"
+        )
+
+        project.assigned_production = production_member
+        project.save()
+
+        return Response(
+            {"message": "Production assigned successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+class TeamMembersAPIView(APIView):
+    """
+    GET /accounts/team-members/
+    → All colleagues (Designer + Production) who share the same company (admin)
+      as the logged‑in Manager.  Assumes 'manager_id' lives in the session.
+    """
+
+    # Roles we care about
+    _TARGET_ROLES = (Member.DESIGNER, Member.PRODUCTION)
+
+    def get(self, request):
+        # ── 1. who is calling? ───────────────────────────────────────────────
+        manager_id = request.session.get("manager_id")
+        print(f"[DEBUG] manager_id from session → {manager_id}")
+
+        if not manager_id:
+            return Response(
+                {"error": "manager_id not found in session"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Logged‑in *manager* row (raises 404 if id invalid or not a Manager)
+        manager = get_object_or_404(Member, member_id=manager_id, role=Member.MANAGER)
+        company_admin_id = manager.admin_id
+        print(f"[DEBUG] company admin_id of manager → {company_admin_id}")
+
+        # ── 2. colleagues in same company, limited to Designer / Production ──
+        colleagues_qs = Member.objects.filter(
+            admin_id=company_admin_id,
+            role__in=self._TARGET_ROLES,
+        )
+
+        # extra ?role=<Designer|Production> filter if the client wants
+        role_param = request.GET.get("role")
+        if role_param:
+            colleagues_qs = colleagues_qs.filter(role__iexact=role_param)
+
+        # ── 3. verbose debug print so you SEE what is returned ───────────────
+        if not colleagues_qs.exists():
+            print("[DEBUG] No colleagues found matching criteria.")
+        for c in colleagues_qs:
+            print(
+                f"[DEBUG] Colleague id={c.member_id:<3} | "
+                f"name={c.full_name:<20} | role={c.role:<11} | "
+                f"admin_id={c.admin_id}"
+            )
+
+        # ── 4. ship to client ────────────────────────────────────────────────
+        serializer = MemberSerializer(colleagues_qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+
+
+
+@api_view(["GET"])
+def member_profile_view(request):
+  member_id = (
+        request.session.get("manager_id")
+        or request.session.get("designer_id")
+        or request.session.get("production_id")
+    )
+  if not member_id:
+        return Response({"error": "No member ID found in session."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+  member = get_object_or_404(Member, member_id=member_id)
+  admin  = member.admin   # FK to Admin
+
+  payload = {
+        "member": {
+            "member_id": member.member_id,
+            "full_name": member.full_name,
+            "email":     member.email,
+            "role":      member.role,
+            "created_at": member.created_at,
+        },
+        "company": {
+            "AdminID":      admin.AdminID,
+            "company_name": admin.company_name,
+            "address":      admin.address,
+            "gst_details":  admin.gst_details,
+        }
+    }
+  return Response(payload, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def logout(request):
+    """
+    Remove any role key that might be present, then flush the session.
+    """
+    for key in ('admin_id', 'designer_id', 'manager_id', 'production_id'):
+        request.session.pop(key, None)
+
+    # Rotate session ID, clears data, prevents reuse
+    request.session.flush()
+
+    return Response({'message': 'Logout successful'})
+
+
+
+
+
+from .models      import Customer, ProjectDetail, ProductionImage
+from .serializers import ProductionImageSerializer
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.decorators import api_view, parser_classes
+from django.db.models import Max
+
+@api_view(["GET", "POST"])
+
+@parser_classes([MultiPartParser, FormParser])   # so DRF will read multipart
+def production_images_view(request, customer_id):
+    """
+    GET  -> list production images for the latest project of <customer_id>
+    POST -> upload one or more images (multipart "file")
+            adds them as ProductionImage(image_num=1..4)
+
+    Front‑end can POST files individually or several at once.
+    """
+    # 1️⃣  find the customer’s newest project
+    customer = get_object_or_404(Customer, pk=customer_id)
+    try:
+        project = (
+            ProjectDetail.objects
+            .filter(customer=customer)
+            .latest("created_at")
+        )
+    except ProjectDetail.DoesNotExist:
+        return Response(
+            {"error": "No project found for this customer."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # ── GET ──────────────────────────────────────────────────────────────
+    if request.method == "GET":
+        imgs = project.production_images.all().order_by("image_num")
+        serializer = ProductionImageSerializer(
+            imgs, many=True, context={"request": request}
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # ── POST ─────────────────────────────────────────────────────────────
+    files = request.FILES.getlist("file")
+    if not files:
+        return Response(
+            {"error": "No file part named 'file' found."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # current highest image_num
+    current_max = (
+        project.production_images.aggregate(max_num=Max("image_num"))["max_num"]
+        or 0
+    )
+
+    if current_max >= 4:
+        return Response(
+            {"error": "Maximum of 4 production images reached."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    created_objs = []
+    next_num = current_max + 1
+
+    for up in files:
+        if next_num > 4:
+            break  # ignore extras
+        obj = ProductionImage.objects.create(
+            project=project,
+            image_num=next_num,
+            file=up,
+        )
+        created_objs.append(obj)
+        next_num += 1
+
+    serializer = ProductionImageSerializer(
+        created_objs, many=True, context={"request": request}
+    )
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+
+
+
+class SendToManagerView(APIView):
+    """
+    POST /accounts/projects/customer/<customer_id>/send-to-manager/
+
+    • Finds the latest ProjectDetail for the given customer.
+    • Forces its status to **Completed** (adjust if you prefer “Assigned”).
+    • Returns {success: true, id, status}.
+    """
+
+    def post(self, request, customer_id):
+        # 1️⃣  latest project for this customer
+        try:
+            project = (
+                ProjectDetail.objects.filter(customer__id=customer_id)
+                .latest("created_at")
+            )
+        except ProjectDetail.DoesNotExist:
+            return Response(
+                {"error": "Project not found for this customer"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        # 2️⃣  always set status → Completed
+        data = request.data.copy()
+        data["status"] = "Completed"   # or "Assigned" if you’d rather
+
+        # 3️⃣  partial update
+        serializer = ProjectDetailSerializer(project, data=data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        serializer.save()
+
+        print("Project updated successfully. ID:", serializer.data.get("id"))
+
+        return Response(
+            {
+                "success": True,
+                "id":     serializer.data.get("id"),
+                "status": serializer.data.get("status"),
+            },
+            status=drf_status.HTTP_200_OK,
+        )
+    
+@api_view(["GET"])
+def all_customers_admin_view(request):
+    admin_id = request.session.get("admin_id")
+    if not admin_id:
+        return Response({"detail": "admin_id not found in session"}, status=400)
+
+    # Retrieve admin instance
+    admin = get_object_or_404(Admin, pk=admin_id)
+
+    # Filter customers whose manager belongs to this admin
+    customers = Customer.objects.filter(manager__admin=admin)
+
+    # No extra context needed now
+    serializer = CustomerSerializer(customers, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET', 'PUT'])
+def admin_settings_view(request):
+    admin_id = request.session.get("admin_id")
+    if not admin_id:
+        return Response({"detail": "Admin not authenticated"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    admin = get_object_or_404(Admin, pk=admin_id)
+
+    if request.method == 'GET':
+        serializer = AdminFullRegistrationSerializer(admin, context={'request': request})
+        return Response(serializer.data)
+
+    elif request.method == 'PUT':
+        serializer = AdminFullRegistrationSerializer(admin, data=request.data, partial=True, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

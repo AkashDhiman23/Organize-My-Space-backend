@@ -20,11 +20,42 @@ from .views import SendToProductionView
 
 from .views import (
    
-    DrawingListView,    
+    DrawingListView, 
+    ProjectListAPIView,
+    AssignDesignerView,
+    TeamMembersAPIView,
+    member_profile_view,
+     AssignProductionView,
+     production_images_view,
+     SendToManagerView,
+     all_customers_admin_view,
+     admin_settings_view,
+  
 )
 
+from .views import AddCustomerWithProject
 
 urlpatterns = [
+    
+
+      # Universal logout 
+    path('logout/', views.logout, name='logout'),
+    
+
+
+
+
+ # Project assignment + retrieval
+    path('projects-list/', ProjectListAPIView.as_view(), name='project-list'),
+    path('projects-assign/<int:project_id>/', AssignDesignerView.as_view(), name='assign-designer'),
+
+
+     path("projects-assign-production/<int:project_id>/", AssignProductionView.as_view(), name="assign-production"),
+
+    # Team members (used to populate dropdown for designer assignment)
+    path('team-members/', TeamMembersAPIView.as_view(), name='team-members'),
+  path('add-customer-project/', AddCustomerWithProject.as_view(), name='add-customer-project'),
+    
 
       path("projects/customer/<int:customer_id>/send-to-production/",
      SendToProductionView.as_view(),
@@ -42,8 +73,11 @@ urlpatterns = [
     path('create-member/', views.create_member, name='create-member'),
     path('csrf/', get_csrf_token, name='get_csrf_token'),
     path('company-details/', views.get_company_details, name='company-details'),
-    path('logout/', views.logout_view, name='logout'),
+    
     path('csrf-token/', csrf_token_view, name='csrf-token'),
+
+
+    path("member-profile/", member_profile_view, name="member-profile"),
 
 
 
@@ -71,11 +105,34 @@ urlpatterns = [
 
       path('api/user/', user_info, name='user_info'),
 
+
+      path(
+        "customers/<int:customer_id>/project/production-images/",
+        production_images_view,
+        name="production-images",
+    ),
+
+      path(
+        "projects/customer/<int:customer_id>/send-to-manager/",
+        SendToManagerView.as_view(),
+        name="send_to_manager_by_customer",
+    ),
+
+
       
     
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),   # Login: get tokens
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),  # Refresh token
     path('customers/<int:customer_id>/', views.customer_detail, name='customer-detail'),
 
+
+
+    path('all_customers_admin/', all_customers_admin_view, name='all_customers_admin'),
+
+
+
+       path('admin_settings/', admin_settings_view, name='admin_settings'),
+
     
 ]
+
