@@ -44,6 +44,10 @@ class Admin(AbstractBaseUser):
 
     def __str__(self):
         return f"{self.full_name} <{self.email}>"
+    
+    
+def company_upload_path(instance, filename):
+    return f"drawings/customer_{instance.customer.id}/{filename}"
 
 # Member model
 class Member(models.Model):
@@ -287,3 +291,15 @@ class ProductionImage(models.Model):
 
     def __str__(self):
         return f"Production Image {self.image_num} – {self.project.customer}"
+    
+
+
+
+class Enquiry(models.Model):
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    enquiry_text = models.TextField()
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Enquiry from {self.name} <{self.email}>"

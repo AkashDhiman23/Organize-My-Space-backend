@@ -12,8 +12,11 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.authentication import TokenAuthentication
 from django.contrib.auth import login as django_login
 from django.middleware.csrf import get_token
+from django.core.mail import send_mail, EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 
-from .models import Customer, Member
+from .models import Customer, Member , Enquiry
 
 from rest_framework.response import Response
 from functools import wraps
@@ -578,12 +581,22 @@ def send_signup_otp(request):
     otp = generate_otp()
     cache.set(cache_key(email), otp, timeout=OTP_TTL)
 
+    
     send_mail(
-        subject="Your One-Time Password",
-        message=f"Your OTP is {otp}. It will expire in 5 minutes.",
-        from_email="your-email@example.com",
-        recipient_list=[email],
-    )
+    subject="Your One-Time Password for Organize My Space",
+    message=(
+        "Hello,\n\n"
+        "Thank you for joining Organize My Space! To complete your signup, please use the following One-Time Password (OTP):\n\n"
+        f"*** {otp} ***\n\n"
+        "This OTP will expire in 5 minutes.\n\n"
+        "If you did not request this, please ignore this email.\n\n"
+        "Thanks,\n"
+        "The Organize My Space Team"
+    ),
+    from_email="your-email@example.com",
+    recipient_list=[email],
+)
+
     return JsonResponse({"detail": "OTP sent"})
 
 
@@ -1041,3 +1054,78 @@ def admin_settings_view(request):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def enquiry_list_create(request):
+    if request.method == 'GET':
+        enquiries = Enquiry.objects.all().order_by('-submitted_at')
+        data = []
+        for enquiry in enquiries:
+            data.append({
+                'id': enquiry.id,
+                'name': enquiry.name,
+                'email': enquiry.email,
+                'enquiry_text': enquiry.enquiry_text,
+                'submitted_at': enquiry.submitted_at,
+            })
+        return Response(data)
+
+    elif request.method == 'POST':
+        name = request.data.get('name')
+        email = request.data.get('email')
+        enquiry_text = request.data.get('enquiry_text')
+
+        if not all([name, email, enquiry_text]):
+            return Response(
+                {"detail": "Name, email and enquiry_text are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        enquiry = Enquiry.objects.create(
+            name=name,
+            email=email,
+            enquiry_text=enquiry_text
+        )
+
+        # Prepare email content using a simple HTML template string
+        subject = "Thank you for contacting Us- Organize My Space!"
+        from_email = "your-email@example.com"
+        to_email = [email]
+
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color:#f9f9f9; padding:20px;">
+          <div style="max-width:600px; margin:auto; background:#ffffff; border-radius:8px; padding:30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+            <h2 style="color:#4a90e2;">Thank You for Reaching Out, {name}!</h2>
+            <p style="font-size:16px; color:#333;">
+              We appreciate you contacting us. Your enquiry is important and we'll respond as soon as possible.
+            </p>
+            <hr style="margin: 20px 0; border:none; border-top:1px solid #ddd;" />
+            <h3 style="color:#4a90e2;">Your Submitted Enquiry:</h3>
+            <p style="background:#f1f1f1; padding:15px; border-radius:5px; font-size:15px; color:#555;">{enquiry_text}</p>
+            <p style="font-size:14px; color:#777;">
+              If you need immediate assistance, please reply to this email or call our support line.
+            </p>
+            <p style="margin-top:30px; font-size:14px; color:#aaa;">Best regards,<br>Organize My Space Team</p>
+          </div>
+        </body>
+        </html>
+        """
+
+        text_content = strip_tags(html_content)  # fallback for email clients that don't support HTML
+
+        email_message = EmailMultiAlternatives(subject, text_content, from_email, to_email)
+        email_message.attach_alternative(html_content, "text/html")
+        email_message.send()
+
+        return Response({
+            'id': enquiry.id,
+            'name': enquiry.name,
+            'email': enquiry.email,
+            'enquiry_text': enquiry.enquiry_text,
+            'submitted_at': enquiry.submitted_at,
+            'detail': 'Enquiry received and confirmation email sent.'
+        }, status=status.HTTP_201_CREATED)

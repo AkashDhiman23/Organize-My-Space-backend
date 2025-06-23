@@ -30,12 +30,15 @@ from .views import (
      SendToManagerView,
      all_customers_admin_view,
      admin_settings_view,
+     enquiry_list_create,
   
 )
 
 from .views import AddCustomerWithProject
 
 urlpatterns = [
+    
+      path('enquiries/', enquiry_list_create, name='enquiry-list-create'),
     
 
       # Universal logout 
