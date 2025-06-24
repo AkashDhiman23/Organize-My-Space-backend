@@ -743,44 +743,48 @@ class AssignDesignerView(APIView):
         designer = get_object_or_404(Member, pk=designer_id, role__icontains="designer")
 
         project.assigned_designer = designer
+
+        # ✅ Update status
+        if project.assigned_production:
+            project.status = "In Design"
+        else:
+            project.status = "Assigned"
+
         project.save()
 
         return Response({"message": "Designer assigned successfully."}, status=status.HTTP_200_OK)
-    
-
-
 
 class AssignProductionView(APIView):
-    """
-    PATCH /accounts/projects-assign-production/<project_id>/
-
-    JSON body:
-        { "assigned_production": <member_id | null> }
-
-    • If member_id is provided ➜ link that Production member to the project
-    • If `null` or empty string ➜ clear the assignment
-    """
-
     def patch(self, request, project_id):
         production_id = request.data.get("assigned_production")
-
         project = get_object_or_404(ProjectDetail, pk=project_id)
 
         if production_id in ("", None):
-            # Un‑assign production
+            # Unassign production
             project.assigned_production = None
+
+            # Optionally downgrade status
+            if project.assigned_designer:
+                project.status = "Assigned"
+            else:
+                project.status = "Pending"
+
             project.save()
             return Response(
                 {"message": "Production assignment cleared."},
                 status=status.HTTP_200_OK,
             )
 
-        # Validate that the specified member exists *and* is a Production
-        production_member = get_object_or_404(
-            Member, pk=production_id, role__icontains="production"
-        )
+        production_member = get_object_or_404(Member, pk=production_id, role__icontains="production")
 
         project.assigned_production = production_member
+
+        # ✅ Update status
+        if project.assigned_designer:
+            project.status = "In Design"
+        else:
+            project.status = "Assigned"  # Optional fallback
+
         project.save()
 
         return Response(
@@ -870,6 +874,7 @@ def member_profile_view(request):
             "company_name": admin.company_name,
             "address":      admin.address,
             "gst_details":  admin.gst_details,
+            "company_logo": admin.company_logo.url if admin.company_logo else None ,
         }
     }
   return Response(payload, status=status.HTTP_200_OK)
