@@ -1047,7 +1047,6 @@ def all_customers_admin_view(request):
 
 @api_view(['GET', 'PUT'])
 @admin_session_required
-
 def admin_settings_view(request):
     admin_id = request.session.get("admin_id")
     if not admin_id:
