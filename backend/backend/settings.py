@@ -85,15 +85,17 @@ CSRF_COOKIE_SECURE = False
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = 'Lax'
 
-# CORS and CSRF settings
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com"
+    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
+    "http://16.176.159.91:8000"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
-    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com"
+    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
+    "http://16.176.159.91:8000"
 ]
 
 CORS_ALLOW_CREDENTIALS = True

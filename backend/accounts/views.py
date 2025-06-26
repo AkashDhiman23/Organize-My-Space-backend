@@ -46,14 +46,23 @@ from rest_framework.response import Response
 from functools import wraps
 
 
+
 def admin_session_required(view_func):
     @wraps(view_func)
     def wrapped(request, *args, **kwargs):
         admin_id = request.session.get('admin_id')
         if not admin_id:
             return Response({'error': 'Unauthorized'}, status=401)
-        request.admin_id = admin_id  # lowercase here
+        
+        try:
+            admin = Admin.objects.get(pk=admin_id)
+        except Admin.DoesNotExist:
+            return Response({'error': 'Unauthorized'}, status=401)
+
+        # Attach the admin to the request for later use
+        request.admin = admin
         return view_func(request, *args, **kwargs)
+
     return wrapped
 
 
