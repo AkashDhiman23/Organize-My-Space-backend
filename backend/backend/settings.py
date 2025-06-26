@@ -16,6 +16,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -108,16 +109,25 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 #     }
 # }
 
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+
+SESSION_COOKIE_SECURE = True        # Only send cookie over HTTPS
+SESSION_COOKIE_HTTPONLY = True      # Don't expose to JavaScript
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'  # Store in DB
+SESSION_COOKIE_AGE = 3600           # 1 hour session
+CSRF_COOKIE_SECURE = True
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'organizemyspacedb',      
+        'NAME': 'OMSbackenddb',      
         'USER': 'postgres',          
         'PASSWORD': 'dhiman223', 
-        'HOST': 'omsbackendrds.cvw0woi2ap7u.ap-southeast-2.rds.amazonaws.com',      
+        'HOST': 'localhost',      
         'PORT': '5432',            
     }
 }
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 MEDIA_URL  = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -170,44 +180,20 @@ EMAIL_HOST_USER = 'organizemyyspace@gmail.com'
 EMAIL_HOST_PASSWORD = 'qdjb eieu szck sxbj'
 
 
-AUTHENTICATION_BACKENDS = ['accounts.backends.EmailBackend']
-
-SIMPLE_JWT = {
-    'USER_ID_FIELD': 'AdminID',
-}
 
 
-AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',  # default
+
+# AUTHENTICATION_BACKENDS = [
+#     'accounts.backends.ModelBackend',
     
-]
-
+    
+# ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
+    'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
-        
-    ),
-}
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
-    'DEFAULT_AUTHENTICATION_CLASSES': 
-    (
-    'rest_framework.authentication.TokenAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
     ],
-     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny', 
-    ]
-
+    'DEFAULT_PERMISSION_CLASSES': [],
 }
 
 CORS_ALLOW_ALL_ORIGINS = True 

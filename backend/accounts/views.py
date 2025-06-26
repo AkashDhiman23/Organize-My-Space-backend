@@ -24,14 +24,13 @@ from functools import wraps
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
-from django.contrib.auth import login as auth_login
+from django.contrib.auth import login as django_login
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.views.decorators.csrf import csrf_exempt
-from django.contrib.auth import authenticate, login
+
 from .models import Customer
 
-from django.contrib.auth import login as django_login
 from django.contrib.auth.hashers import check_password
 
 
@@ -90,7 +89,7 @@ def register_admin_full(request):
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@authentication_classes([])
+@authentication_classes([])  # No auth required to access this view
 def login(request):
     data = request.data
     email = data.get('email')
@@ -101,6 +100,10 @@ def login(request):
         user = Admin.objects.get(email=email)
         if check_password(password, user.password):
             request.session['admin_id'] = user.AdminID
+
+            # 🔍 Print session content for debugging
+            print("Session after admin login:", dict(request.session))
+
             return Response({'message': 'Admin login successful', 'role': 'Admin'})
         else:
             return Response({'error': 'Invalid email or password'}, status=401)
@@ -111,7 +114,6 @@ def login(request):
     try:
         member = Member.objects.get(email=email)
         if member.check_password(password):
-            # Save member id to session based on role
             if member.role == Member.DESIGNER:
                 request.session['designer_id'] = member.member_id
             elif member.role == Member.MANAGER:
@@ -119,12 +121,14 @@ def login(request):
             elif member.role == Member.PRODUCTION:
                 request.session['production_id'] = member.member_id
 
+            # 🔍 Print session content for debugging
+            print("Session after member login:", dict(request.session))
+
             return Response({'message': f'{member.role} login successful', 'role': member.role})
         else:
             return Response({'error': 'Invalid email or password'}, status=401)
     except Member.DoesNotExist:
         return Response({'error': 'Invalid email or password'}, status=401)
-
 
 
 from .models import Customer, Member
@@ -1042,6 +1046,8 @@ def all_customers_admin_view(request):
 
 
 @api_view(['GET', 'PUT'])
+@admin_session_required
+
 def admin_settings_view(request):
     admin_id = request.session.get("admin_id")
     if not admin_id:
