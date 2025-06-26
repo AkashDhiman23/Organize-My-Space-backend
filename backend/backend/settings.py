@@ -36,11 +36,10 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'backend.urls'
 
-SESSION_COOKIE_SAMESITE = 'None'
-SESSION_COOKIE_SECURE = True
-
-CSRF_COOKIE_SAMESITE = 'None'
-CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = 'Lax'  # or 'Strict' for HTTP; 'None' requires HTTPS
+SESSION_COOKIE_SECURE = False    # must be False on HTTP
+CSRF_COOKIE_SECURE = False       # same as above
+CORS_ALLOW_CREDENTIALS = True
 
 TEMPLATES = [
     {
