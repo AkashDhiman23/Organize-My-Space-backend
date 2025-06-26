@@ -103,7 +103,6 @@ def login(request):
             refresh = RefreshToken.for_user(user)
             return Response({
                 'message': 'Admin login successful',
-                'role': 'Admin',
                 'access': str(refresh.access_token),
                 'refresh': str(refresh),
                 'admin_id': user.AdminID
