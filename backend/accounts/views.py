@@ -56,78 +56,79 @@ def admin_session_required(view_func):
         return view_func(request, *args, **kwargs)
     return wrapped
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_admin_full(request):
-    from rest_framework_simplejwt.tokens import RefreshToken
     email = request.data.get('email', '').strip().lower()
     otp = request.data.get('otp', '').strip()
+
     cached_otp = cache.get(cache_key(email))
+
     if not cached_otp or cached_otp != otp:
-        return Response({
-            "non_field_errors": ["OTP expired or incorrect. Please request a new one."]
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"non_field_errors": ["OTP expired or not found. Please request a new one."]},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     serializer = AdminFullRegistrationSerializer(data=request.data)
-    if not serializer.is_valid():
-        print(" Serializer validation failed:", serializer.errors)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    try:
-        admin: Admin = serializer.save()  # type hint here
-    except Exception as e:
-        print(" Saving admin failed:", str(e))
-        return Response({"detail": "Internal server error"}, status=500)
-    cache.delete(cache_key(email))
-    refresh = RefreshToken.for_user(admin)
-    return Response({
-        "message": "Admin registered successfully!",
-        "admin_id": admin.AdminID,
-        "access": str(refresh.access_token),
-        "refresh": str(refresh),
-    }, status=status.HTTP_201_CREATED)
+    if serializer.is_valid():
+        admin = serializer.save()
+        django_login(request, admin)
+        csrf_token = get_token(request)
+        cache.delete(cache_key(email))
+        return Response({
+            "message": "Admin registered and logged in!",
+            "admin_id": admin.AdminID,
+            "csrfToken": csrf_token,
+        }, status=status.HTTP_201_CREATED)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@authentication_classes([])  # No auth required to access this view
 def login(request):
-    email = request.data.get('email')
-    password = request.data.get('password')
-
-    if not email or not password:
-        return Response({'error': 'Email and password are required'}, status=status.HTTP_400_BAD_REQUEST)
+    data = request.data
+    email = data.get('email')
+    password = data.get('password')
 
     # Try Admin login first
     try:
         user = Admin.objects.get(email=email)
         if check_password(password, user.password):
-            refresh = RefreshToken.for_user(user)
-            return Response({
-                'message': 'Admin login successful',
-                'access': str(refresh.access_token),
-                'refresh': str(refresh),
-                'admin_id': user.AdminID
-            })
+            request.session['admin_id'] = user.AdminID
+
+            # 🔍 Print session content for debugging
+            print("Session after admin login:", dict(request.session))
+
+            return Response({'message': 'Admin login successful', 'role': 'Admin'})
         else:
-            return Response({'error': 'Invalid email or password'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({'error': 'Invalid email or password'}, status=401)
     except Admin.DoesNotExist:
         pass
 
-    # Try Member login with roles (Designer, Manager, Production)
+    # Try Member login with any role (Designer, Manager, Production)
     try:
         member = Member.objects.get(email=email)
         if member.check_password(password):
-            refresh = RefreshToken.for_user(member)
-            return Response({
-                'message': f'{member.role} login successful',
-                'role': member.role,
-                'access': str(refresh.access_token),
-                'refresh': str(refresh),
-                'member_id': member.member_id
-            })
+            if member.role == Member.DESIGNER:
+                request.session['designer_id'] = member.member_id
+            elif member.role == Member.MANAGER:
+                request.session['manager_id'] = member.member_id
+            elif member.role == Member.PRODUCTION:
+                request.session['production_id'] = member.member_id
+
+            # 🔍 Print session content for debugging
+            print("Session after member login:", dict(request.session))
+
+            return Response({'message': f'{member.role} login successful', 'role': member.role})
         else:
-            return Response({'error': 'Invalid email or password'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({'error': 'Invalid email or password'}, status=401)
     except Member.DoesNotExist:
-        return Response({'error': 'Invalid email or password'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({'error': 'Invalid email or password'}, status=401)
 
 
 from .models import Customer, Member

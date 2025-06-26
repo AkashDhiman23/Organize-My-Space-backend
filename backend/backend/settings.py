@@ -133,30 +133,22 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
+    
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
-    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
+    
 ]
 
 CORS_ALLOW_CREDENTIALS = True
-from datetime import timedelta
 
+# DRF Settings
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
     ],
-}
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'AUTH_HEADER_TYPES': ('Bearer',),
+    'DEFAULT_PERMISSION_CLASSES': [],
 }
 
 # Static and media files
