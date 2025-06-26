@@ -133,12 +133,12 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    
+    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
-    
+    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
