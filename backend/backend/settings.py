@@ -7,7 +7,15 @@ SECRET_KEY = 'django-insecure-hynyqr)p(%2gdqdx$yk_yubvh@1vo027kdxsn=4hzl&m1dl2yy
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '16.176.159.91']
+if 'PYTHONPATH' in os.environ:
+    Debug = True
+    # Debug = False
+    ALLOWED_HOSTS = ['.ap-southeast-2.elasticbeanstalk.com']
+else:
+    # SECURITY WARNING: don't run with debug turned on in production!
+    DEBUG = True
+    ALLOWED_HOSTS = []
+
 
 # Application definition
 INSTALLED_APPS = [
@@ -107,14 +115,12 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
-    "http://16.176.159.91:8000"
+    
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
-    "http://organizemyspace-frontendbucket.s3-website-ap-southeast-2.amazonaws.com",
-    "http://16.176.159.91:8000"
+    
 ]
 
 CORS_ALLOW_CREDENTIALS = True
