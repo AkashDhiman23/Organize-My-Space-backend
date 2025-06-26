@@ -63,10 +63,10 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'organizemyspacedb',
+        'NAME': 'OMSbackenddb',
         'USER': 'postgres',
         'PASSWORD': 'dhiman223',
-        'HOST': 'omsbackendrds.cvw0woi2ap7u.ap-southeast-2.rds.amazonaws.com',
+        'HOST': 'localhost',
         'PORT': '5432',
     }
 }
