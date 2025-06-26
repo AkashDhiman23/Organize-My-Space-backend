@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -60,16 +61,29 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database configuration
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'OMSbackenddb',
-        'USER': 'postgres',
-        'PASSWORD': 'dhiman223',
-        'HOST': 'localhost',
-        'PORT': '5432',
+if 'RDS_DB_NAME' in os.environ:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
+            'NAME': os.environ['RDS_DB_NAME'],
+            'USER': os.environ['RDS_USERNAME'],
+            'PASSWORD': os.environ['RDS_PASSWORD'],
+            'HOST': os.environ['RDS_HOSTNAME'],
+            'PORT': os.environ['RDS_PORT'],
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
+            'NAME': 'OMSbackenddb',
+            'USER': 'postgres',
+            'PASSWORD': 'dhiman223',#'This is the password for your local postgres pgadmin'
+            'HOST': '', #'Localhost is empty'
+            'PORT':'', #Assumes default as 5432
+        },
+    }
+
 
 # Email config (if needed)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
