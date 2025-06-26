@@ -59,10 +59,9 @@ def admin_session_required(view_func):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_admin_full(request):
+    from rest_framework_simplejwt.tokens import RefreshToken
     email = request.data.get('email', '').strip().lower()
     otp = request.data.get('otp', '').strip()
-
-    # 🔐 OTP check
     cached_otp = cache.get(cache_key(email))
     if not cached_otp or cached_otp != otp:
         return Response({
@@ -70,20 +69,22 @@ def register_admin_full(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     serializer = AdminFullRegistrationSerializer(data=request.data)
-    if serializer.is_valid():
-        admin = serializer.save()
-        cache.delete(cache_key(email))  # ✅ Clear OTP after use
-
-        # 🎟️ Issue JWT tokens
-        refresh = RefreshToken.for_user(admin)
-        return Response({
-            "message": "Admin registered successfully!",
-            "admin_id": admin.AdminID,
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-        }, status=status.HTTP_201_CREATED)
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    if not serializer.is_valid():
+        print(" Serializer validation failed:", serializer.errors)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        admin: Admin = serializer.save()  # type hint here
+    except Exception as e:
+        print(" Saving admin failed:", str(e))
+        return Response({"detail": "Internal server error"}, status=500)
+    cache.delete(cache_key(email))
+    refresh = RefreshToken.for_user(admin)
+    return Response({
+        "message": "Admin registered successfully!",
+        "admin_id": admin.AdminID,
+        "access": str(refresh.access_token),
+        "refresh": str(refresh),
+    }, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])

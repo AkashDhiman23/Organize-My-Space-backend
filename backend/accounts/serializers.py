@@ -5,12 +5,16 @@ from .models import Drawing
 from django.core.cache import cache
 
 
+
 class AdminFullRegistrationSerializer(serializers.ModelSerializer):
     company_logo = serializers.SerializerMethodField()
 
     class Meta:
         model = Admin
-        fields = ['AdminID', 'email', 'full_name', 'password', 'company_name', 'address', 'gst_details', 'company_logo']
+        fields = [
+            'AdminID', 'email', 'full_name', 'password',
+            'company_name', 'address', 'gst_details', 'company_logo'
+        ]
         extra_kwargs = {'password': {'write_only': True}}
 
     def get_company_logo(self, obj):
@@ -23,12 +27,12 @@ class AdminFullRegistrationSerializer(serializers.ModelSerializer):
         return None
 
     def update(self, instance, validated_data):
-        # Handle file field properly
-        company_logo = self.context['request'].FILES.get('company_logo')
+        request = self.context.get('request')
+        company_logo = request.FILES.get('company_logo') if request else None
+
         if company_logo:
             instance.company_logo = company_logo
 
-        # Update other fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
@@ -36,8 +40,16 @@ class AdminFullRegistrationSerializer(serializers.ModelSerializer):
         return instance
 
     def create(self, validated_data):
+        request = self.context.get('request')
+        company_logo = request.FILES.get('company_logo') if request else None
         password = validated_data.pop('password')
+
         user = Admin.objects.create_user(password=password, **validated_data)
+
+        if company_logo:
+            user.company_logo = company_logo
+            user.save()
+
         return user
 
 
